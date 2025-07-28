@@ -1,0 +1,1 @@
+This is a simple automation tool to collect point on AIEarn website
