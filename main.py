@@ -1,6 +1,7 @@
 import helium
 import time
-from selenium.webdriver.common.by import By
+
+from selenium.webdriver.chrome.options import Options
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -8,70 +9,32 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from apscheduler.triggers.base import BaseTrigger
 from datetime import datetime, timedelta
-import random
+
+#import undetected_chromedriver as uc
+
+import ssl
+ssl._create_default_https_context = ssl._create_unverified_context
 
 
-driver = helium.start_chrome()
+from operations import *
+
+# Set desired window size
+width = 1920
+height = 1080
+
+# Create Chrome options
+options = Options()
+options.add_argument("--force-device-scale-factor=0.5")  # 1.25 = 125% zoom
+options.add_argument(f"--window-size={width},{height}")
+options.add_argument("--headless=new")  # or just "--headless"
+options.add_argument("--disable-blink-features=AutomationControlled")
+options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64)...")
 
 
-def run(username, password):
-    #helium.start_chrome('https://aiearn.co/')
-    try:
-        helium.go_to('https://aiearn.co/')
-
-        helium.wait_until(helium.Button('Get Start').exists)
-        helium.click('Get Start')
-
-        helium.wait_until(helium.TextField('User ID').exists)
-        helium.write(username, into='User ID')
-        helium.write(password, into='Password')
-
-        helium.click('Sign in')
-        helium.wait_until(helium.Text('Recommend friends, you will get $10').exists)
-        helium.go_to('https://aiearn.co/home/vip')
-
-        helium.wait_until(helium.Image(below='Steal').exists)
-        helium.click(helium.Image(below='Steal'))
-    except Exception as e:
-        print('Error at run function')
-        print(e)
-
-
-def log_out():
-    try:
-        temp = driver.find_element(by=By.CSS_SELECTOR, value='.chakra-stack.css-cp3a5l')
-        temp = temp.find_element(by=By.CSS_SELECTOR, value='.chakra-avatar')
-        temp = temp.find_element(by=By.TAG_NAME, value='img')
-
-        helium.click(temp)
-
-        # helium.wait_until('Sign out')
-        helium.click('Sign out')
-
-        helium.wait_until(helium.Button('Get Start').exists)
-    except Exception as e:
-        print("Log out error")
-        print(e)
-
-
-def get_time(username, password):
-    try:
-        run(username, password)
-        s = driver.find_elements(by=By.CSS_SELECTOR, value='.chakra-text.css-0')[1].text.split(':')
-        log_out()
-        return int(s[0]), int(s[1])
-    
-    except Exception as e:
-        print('get interval error')
-        print(e)
-        
-
-def retrieve_intervals(accounts):
-    intervals = []
-    for acc in accounts:
-        t = get_time(acc['username'], acc['password'])
-        intervals.append(t)
-    return intervals
+#driver = uc.Chrome(options=options)
+# driver = helium.start_chrome(options=options)
+# driver.set_page_load_timeout(60)
+#helium.set_driver(driver)
 
 
 def read_accounts():
@@ -88,10 +51,6 @@ def read_accounts():
             accouts.append(d)
     return accouts
 
-# Example global or external config for interval (could be read from file/db)
-def get_dynamic_interval():
-    return random.randint(1, 5)  # Simulate dynamic hours (1 to 5)
-
 
 class DynamicIntervalTrigger(BaseTrigger):
     def __init__(self, username, password):
@@ -103,20 +62,101 @@ class DynamicIntervalTrigger(BaseTrigger):
         self.password = password
 
     def get_next_fire_time(self, previous_fire_time, now):
-        if previous_fire_time is None:
-            return self._next_run_time
+        driver = helium.start_chrome(options=options)
+        driver.set_page_load_timeout(60)
+        helium.set_driver(driver)
 
         # Determine the next interval dynamically
-        interval = get_time(self.username, self.password)
-        print(f'user: {self.username}  =next-time: {interval[0]} hours {interval[1]} minutes')
-        return now + timedelta(hours=interval[0], minutes=interval[1])
+
+        print(f"-------RUNNING WITH USER: {self.username} ---------")
+
+        attemp = 0
+        while attemp < 5:
+            try:
+                if (login(self.username, self.password, driver) == WRONG_PASSWORD):
+                    print(f"WRONG PASSWORRD WITH USER: {self.username}")
+                    return None
+                break
+            except Exception as e:
+                print(e)
+                print("Re-attemp login")
+                attemp += 1
+
+        if attemp == 5:
+            print("CAN'T LOGIN, USER: ", self.username, ". WILL STOP THIS USER!")
+            return None
+        
+
+        print("Login successfully")
+
+        wait_page_complete(driver)
+
+        attemp = 0
+        print(f"Running get point")
+        while attemp < 5:
+            try:
+                if (get_point(driver) == COMPLETE):
+                    break
+
+            except Exception as e:
+                print(e)
+                attemp += 1
+
+                status = get_login_status(driver)
+                # ->account['isLogin'], account['username']
+                if status['isLogin'] == False:
+                    print("INTERRUPTED WHILE RUNNING, WHILL TRY 10 MINUTES LATER!")
+                    return datetime.now() + timedelta(minutes=10)
+        
+        if attemp == 5:
+            print("CAN'T GET POINT, USER: ", self.username, ". WILL STOP THIS USER!")
+            return None
+                
+        print(f"Got point")
+
+        attemp = 0
+        while attemp < 5:
+            try:
+                t = extract_time(driver)[3:].split(':')
+                print("string got: ", t)
+                h = int(t[0])
+                m = int(t[1])
+                break
+
+            except Exception as e:
+                print(e)
+                attemp += 1
+
+        if attemp == 5:
+            print("CAN'T GET TIME, USER: ", self.username, ". WILL STOP THIS USER!")
+            return None
+
+        print("Got time")
+
+        attemp = 0
+        while attemp < 5:
+            try:
+                if (log_out(driver) == COMPLETE):
+                    break
+            except Exception as e:
+                print(e)
+                attemp += 1
+        
+        if attemp == 5:
+            raise Exception(f"CAN'T LOGOUT, USER: {self.username}")
+
+
+        print(f'user: {self.username}  =next-time: {t[0]} hours {t[1]} minutes')
+        helium.kill_browser()
+
+        return datetime.now() + timedelta(hours=h, minutes=m + 1)
 
     def __str__(self):
         return "<DynamicIntervalTrigger>"
     
 
-def dummy_function():
-    pass
+def dummy_function(username, password):
+    print(f"-------RUNNING:   {username}")
 
 
 if __name__ == '__main__':
@@ -125,17 +165,20 @@ if __name__ == '__main__':
         # intervals = retrieve_intervals(accounts)
 
         scheduler = BlockingScheduler()
+        
 
         for acc in accounts:
             di = DynamicIntervalTrigger(acc['username'], acc['password'])
             scheduler.add_job(
                 dummy_function,
                 trigger=di,
-                # args=[acc['username'], acc['password']],
-                next_run_time=datetime.now()
+                args=[acc['username'], acc['password']],
+                # next_run_time=datetime.now(),
+                # id={acc['username']},
             )
 
         scheduler.start()
+        
     except Exception as e:
         print(e)
     finally:
