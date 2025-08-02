@@ -59,6 +59,8 @@ def login(username, password, driver):
     except Exception as e:
         raise e
     
+    return COMPLETE
+    
 
 def extract_time(driver):
     try:
@@ -72,13 +74,11 @@ def extract_time(driver):
             )
         if driver.current_url != 'https://aiearn.co/home/vip':
             raise Exception("redirected page")
-        
-        time.sleep(5)
 
-        temp = driver.find_element(by=By.TAG_NAME, value='tbody')
-        s = temp.find_element(By.XPATH, value='//tbody/tr[1]/td[1]/div').text
+        wait = WebDriverWait(driver, 30)
+        s = wait.until(EC.presence_of_element_located((By.XPATH, '//tbody/tr[1]/td[1]/div/p[2]')))
 
-        return s
+        return s.text
     
     except Exception as e:
         raise e
@@ -108,7 +108,7 @@ def get_point(driver):
             image = body.find_element(By.XPATH, value='//tbody/tr[1]/td[4]/div/div')
 
             css = image.value_of_css_property('filter')
-            if css == 'grayscale(1)':
+            if css != 'grayscale(1)':
                 helium.click(image)
                 return True
             
@@ -122,10 +122,15 @@ def get_point(driver):
         pass
 
     def check_time():
-        t = extract_time(driver)[3:].split(':')
-        h = int(t[0])
-        m = int(t[1])
-
+        try:
+            s = extract_time(driver)
+            print("time string: ", s)
+            t = s.split(':')
+            h = int(t[0])
+            m = int(t[1])
+        except Exception as e:
+            print(e)
+        
         # if remaining time is less than 3:45, break
         if timedelta(hours=h, minutes=m) < timedelta(hours=3, minutes=45):
             return False
@@ -162,17 +167,24 @@ def get_point(driver):
 
 def log_out(driver):
     try:
-        helium.go_to('https://aiearn.co/home/guess')
-        time.sleep(5)
+        if driver.current_url != 'https://aiearn.co/home/guess':
+            helium.go_to('https://aiearn.co/home/guess')
+
+        wait_page_complete(driver)
         # //*[@id="main-area"]/div[2]/div[3]/div/span
         # #main-area > div.css-sbw3ai > div.css-6ed3zy > div > span > img
-        temp = driver.find_element(by=By.XPATH, value='//*[@id="main-area"]/div[2]/div[3]/div/span/img')
+
+        wait = WebDriverWait(driver, 30)
+        temp = wait.until(EC.presence_of_element_located((By.XPATH, '//*[@id="main-area"]/div[2]/div[3]/div/span/img')))
+        temp = wait.until(EC.element_to_be_clickable((By.XPATH, '//*[@id="main-area"]/div[2]/div[3]/div/span/img')))
+        
+        # temp = driver.find_element(by=By.XPATH, value='//*[@id="main-area"]/div[2]/div[3]/div/span/img')
         helium.click(temp)
     except Exception as e:
         print("Can't find avatar icon")
 
     try:
-        helium.wait_until('Sign out')
+        #helium.wait_until(helium.Text('Sign out').exists)
         helium.click('Sign out')
     except Exception as e:
         print(e)
